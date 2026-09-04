@@ -18,10 +18,10 @@ services:
     build: .
     container_name: scorpion_app
     ports:
-      - "${PORT:-3000}:${PORT:-3000}"
+      - "${PORT:-3025}:${PORT:-3025}"
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-scorpion_admin}:${POSTGRES_PASSWORD:-scorpion_secret_pass}@postgres:5432/${POSTGRES_DB:-scorpion_ps}?schema=public
-      - PORT=${PORT:-3000}
+      - PORT=${PORT:-3025}
       - JWT_SECRET=${JWT_SECRET:-super-secret-scorpion-gaming-jwt-key}
       - NODE_ENV=production
     depends_on:
