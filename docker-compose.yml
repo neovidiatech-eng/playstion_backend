@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: scorpion_db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-scorpion_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scorpion_secret_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-scorpion_ps}
+    ports:
+      - "${DB_HOST_PORT:-5434}:5432"
+    volumes:
+      - scorpion_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  app:
+    build: .
+    container_name: scorpion_app
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-scorpion_admin}:${POSTGRES_PASSWORD:-scorpion_secret_pass}@postgres:5432/${POSTGRES_DB:-scorpion_ps}?schema=public
+      - PORT=${PORT:-3000}
+      - JWT_SECRET=${JWT_SECRET:-super-secret-scorpion-gaming-jwt-key}
+      - NODE_ENV=production
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+volumes:
+  scorpion_postgres_data:
