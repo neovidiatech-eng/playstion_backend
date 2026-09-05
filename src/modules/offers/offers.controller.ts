@@ -6,8 +6,12 @@ import { NotificationService } from '../notifications/notification.service';
 
 export const getOffers = async (req: Request, res: Response): Promise<void> => {
   const branchId = qs(req.query.branchId);
+  const showAll  = req.query.all === 'true' || (req.user && req.user.role === 'ADMIN');
   const offers = await prisma.offer.findMany({
-    where: { isActive: true, ...(branchId ? { OR: [{ branchId }, { branchId: null }] } : {}) },
+    where: {
+      ...(showAll ? {} : { isActive: true }),
+      ...(branchId ? { OR: [{ branchId }, { branchId: null }] } : {}),
+    },
     orderBy: { createdAt: 'desc' },
   });
   res.json({ success: true, data: offers });
