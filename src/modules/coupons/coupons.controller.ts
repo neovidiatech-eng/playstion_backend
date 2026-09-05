@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../../config/prisma';
-import { couponSchema, validateCouponSchema } from './coupons.schema';
+import { couponSchema, couponUpdateSchema, validateCouponSchema } from './coupons.schema';
 import { param } from '../../utils/query';
 
 // ─── GET /coupons ─────────────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ export const createCoupon = async (req: Request, res: Response): Promise<void> =
 // ─── PUT /coupons/:id (Admin only) ───────────────────────────────────────────
 export const updateCoupon = async (req: Request, res: Response): Promise<void> => {
   const id = param(req.params.id);
-  const parsed = couponSchema.partial().safeParse(req.body);
+  const parsed = couponUpdateSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ success: false, errors: parsed.error.flatten() });
     return;
