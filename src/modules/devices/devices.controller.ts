@@ -110,6 +110,16 @@ export const updateDeviceStatus = async (req: Request, res: Response): Promise<v
 };
 
 export const deleteDevice = async (req: Request, res: Response): Promise<void> => {
-  await prisma.device.delete({ where: { id: param(req.params.id) } });
-  res.json({ success: true, message: 'Device deleted' });
+  const deviceId = param(req.params.id);
+  await prisma.$transaction(async (tx) => {
+    const bookings = await tx.booking.findMany({ where: { deviceId }, select: { id: true } });
+    const bookingIds = bookings.map(b => b.id);
+    if (bookingIds.length > 0) {
+      await tx.bookingItem.deleteMany({ where: { bookingId: { in: bookingIds } } });
+      await tx.booking.deleteMany({ where: { deviceId } });
+    }
+    await tx.device.delete({ where: { id: deviceId } });
+  });
+  res.json({ success: true, message: 'Device deleted successfully' });
 };
+
