@@ -137,22 +137,33 @@ async function main() {
   }
 
   // 8. Create Initial Offers
-  const sampleOffers = [
-    {
-      title: 'عرض الـ Happy Hour 🔥',
-      description: 'العب ساعتين فردي واحصل على الثالثة مجاناً يومياً من 2 ظهراً حتى 6 مساءً!',
-      discountPercent: 33,
-      branchId: branch.id,
-      isActive: true,
-    },
-    {
-      title: 'بطولة عطلة نهاية الأسبوع 🏆',
-      description: 'خصم 20% على حجوزات الزوجي لأكثر من 3 ساعات خلال الويكند.',
-      discountPercent: 20,
-      branchId: branch.id,
-      isActive: true,
-    },
-  ];
+  const existingOffer1 = await prisma.offer.findFirst({ where: { title: 'عرض الـ Happy Hour' } });
+  if (!existingOffer1) {
+    await prisma.offer.create({
+      data: {
+        title: 'عرض الـ Happy Hour',
+        description: 'احجز أي جهاز بلايستيشن 4 أو 5 بين الساعة 2 ظهراً و 6 مساءً واحصل على خصم 20% على سعر الساعة!',
+        discountPercent: 20,
+        validTo: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+        branchId: branch.id,
+        isActive: true,
+      },
+    });
+  }
+
+  const existingOffer2 = await prisma.offer.findFirst({ where: { title: 'بطولة عطلة نهاية الأسبوع' } });
+  if (!existingOffer2) {
+    await prisma.offer.create({
+      data: {
+        title: 'بطولة عطلة نهاية الأسبوع',
+        description: 'سجل في بطولة FIFA / FC24 الأسبوعية واحصل على مشروب مجاني وخصم 15% على الحجز.',
+        discountPercent: 15,
+        validTo: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+        branchId: branch.id,
+        isActive: true,
+      },
+    });
+  }
 
   // 9. Create System Settings (Pricing & Payment Details)
   await prisma.systemSettings.upsert({

@@ -39,8 +39,22 @@ export const login = async (req: Request, res: Response): Promise<void> => {
   }
 
   const { email, password } = parsed.data;
+  const identifier = email.trim();
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  // Find user by email, phone, exact id, or prefix (e.g. employee code)
+  const cleanCode = identifier.replace(/^EMP-?/i, '');
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { email: { equals: identifier, mode: 'insensitive' } },
+        { phone: identifier },
+        { id: identifier },
+        { id: { startsWith: cleanCode, mode: 'insensitive' } },
+        { email: { startsWith: identifier, mode: 'insensitive' } },
+      ],
+    },
+  });
+
   if (!user) {
     res.status(401).json({ success: false, message: 'Invalid credentials' });
     return;

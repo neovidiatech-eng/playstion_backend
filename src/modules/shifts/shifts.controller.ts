@@ -75,10 +75,10 @@ export const endShift = async (req: Request, res: Response): Promise<void> => {
       createdByUserId: shift.employeeId,
       branchId: shift.branchId,
       status: 'COMPLETED',
-      createdAt: {
-        gte: shift.startTime,
-        lte: endTime,
-      },
+      OR: [
+        { createdAt: { gte: shift.startTime, lte: endTime } },
+        { endTime: { gte: shift.startTime, lte: endTime } },
+      ],
     },
     select: { price: true },
   });
@@ -128,7 +128,10 @@ export const getCurrentShift = async (req: Request, res: Response): Promise<void
       createdByUserId: employeeId,
       branchId: shift.branchId,
       status: 'COMPLETED',
-      createdAt: { gte: shift.startTime },
+      OR: [
+        { createdAt: { gte: shift.startTime } },
+        { endTime: { gte: shift.startTime } },
+      ],
     },
     select: { price: true },
   });

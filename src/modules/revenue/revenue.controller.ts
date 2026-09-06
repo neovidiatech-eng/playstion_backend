@@ -23,8 +23,11 @@ export const getRevenueSummary = async (req: Request, res: Response): Promise<vo
   }
 
   const whereBase: any = {
-    status: 'COMPLETED',
-    startTime: { gte: startDate },
+    status: { in: ['COMPLETED', 'ACTIVE'] },
+    OR: [
+      { startTime: { gte: startDate } },
+      { createdAt: { gte: startDate } },
+    ],
     ...(branchId ? { branchId } : {}),
   };
 
@@ -103,7 +106,8 @@ export const getRevenueSummary = async (req: Request, res: Response): Promise<vo
       totalCash += bookingPrice;
     }
 
-    const durationMs = Math.max(0, b.endTime.getTime() - b.startTime.getTime());
+    const end = (b.status === 'ACTIVE' && b.isOpenTime) ? new Date() : (b.endTime || new Date());
+    const durationMs = Math.max(0, end.getTime() - b.startTime.getTime());
     const durationMins = Math.round(durationMs / 60000);
     totalMinutesPlayed += durationMins;
 
