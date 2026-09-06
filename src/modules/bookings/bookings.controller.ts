@@ -12,7 +12,9 @@ export const getBookings = async (req: Request, res: Response): Promise<void> =>
   const date     = qs(req.query.date);
   const user = req.user!;
 
-  const customerFilter = user.role === 'CUSTOMER' ? { customerId: user.userId } : {};
+  const customerFilter = user.role === 'CUSTOMER'
+    ? { OR: [{ customerId: user.userId }, { createdByUserId: user.userId }] }
+    : {};
 
   const bookings = await prisma.booking.findMany({
     where: {
