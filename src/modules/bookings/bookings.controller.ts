@@ -3,6 +3,7 @@ import prisma from '../../config/prisma';
 import { bookingSchema, updateBookingSchema, rejectBookingSchema } from './bookings.schema';
 import { qs, param } from '../../utils/query';
 import { NotificationService } from '../notifications/notification.service';
+import { SocketService } from '../../services/socket.service';
 
 export const getBookings = async (req: Request, res: Response): Promise<void> => {
   const branchId = qs(req.query.branchId);
@@ -50,7 +51,10 @@ export const getBookingById = async (req: Request, res: Response): Promise<void>
 
 export const createBooking = async (req: Request, res: Response): Promise<void> => {
   const parsed = bookingSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ success: false, errors: parsed.error.flatten() }); return; }
+  if (!parsed.success) {
+    res.status(400).json({ success: false, errors: parsed.error.flatten() });
+    return;
+  }
 
   const {
     deviceId,
@@ -67,11 +71,32 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
     offerNote,
     customerId,
     customerNameManual,
+    discountAmount,
+    couponCode,
   } = parsed.data;
 
-  const device = await prisma.device.findUnique({ where: { id: deviceId } });
+  const device = await prisma.device.findUnique({
+    where: { id: deviceId },
+    include: { room: true },
+  });
   if (!device || device.status === 'MAINTENANCE') {
-    res.status(400).json({ success: false, message: 'Device is not available for booking' }); return;
+    res.status(400).json({ success: false, message: 'الجهاز غير متاح للحجز حالياً أو في وضع الصيانة' });
+    return;
+  }
+
+  // Resolve valid branchId from device's room or fallback to first available branch
+  let finalBranchId: string | undefined = device.room?.branchId;
+  if (!finalBranchId && branchId && branchId !== 'default-branch') {
+    const b = await prisma.branch.findUnique({ where: { id: branchId } }).catch(() => null);
+    if (b) finalBranchId = b.id;
+  }
+  if (!finalBranchId) {
+    const b = await prisma.branch.findFirst();
+    finalBranchId = b?.id;
+  }
+  if (!finalBranchId) {
+    res.status(400).json({ success: false, message: 'لم يتم العثور على فرع مسجل في النظام' });
+    return;
   }
 
   const isStaff = req.user!.role === 'ADMIN' || req.user!.role === 'EMPLOYEE';
@@ -86,26 +111,47 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
         AND: [{ startTime: { lt: new Date(endTime) } }, { endTime: { gt: new Date(startTime) } }],
       },
     });
-    if (overlap) { res.status(409).json({ success: false, message: 'Device already booked in this time slot' }); return; }
+    if (overlap) {
+      res.status(409).json({ success: false, message: 'الجهاز محجوز بالفعل في هذه الفترة الزمنية' });
+      return;
+    }
+  }
+
+  // Determine customerId & name
+  let resolvedCustomerId = customerId && customerId.trim() !== '' ? customerId : undefined;
+  if (!isStaff && req.user?.role === 'CUSTOMER') {
+    resolvedCustomerId = req.user.userId;
+  }
+
+  let resolvedCustomerName = customerNameManual;
+  if (!resolvedCustomerName && resolvedCustomerId) {
+    const custUser = await prisma.user.findUnique({ where: { id: resolvedCustomerId } }).catch(() => null);
+    resolvedCustomerName = custUser?.name;
   }
 
   const booking = await prisma.booking.create({
     data: {
-      deviceId, branchId,
+      deviceId,
+      branchId: finalBranchId!,
       startTime: new Date(startTime),
       endTime: new Date(endTime),
-      mode, price,
+      mode,
+      price,
+      discountAmount: discountAmount || 0,
+      couponCode: couponCode || null,
       isOpenTime: isOpenTime ?? false,
       paymentMethod: paymentMethod ?? 'CASH_ON_ARRIVAL',
-      paymentSender,
-      receiptImage,
+      paymentSender: paymentSender || null,
+      receiptImage: receiptImage || null,
       isOffer: isOffer ?? false,
-      offerNote, customerId, customerNameManual,
+      offerNote: offerNote || null,
+      customerId: resolvedCustomerId || null,
+      customerNameManual: resolvedCustomerName || null,
       createdByUserId: req.user!.userId,
       status: initialStatus,
     },
     include: {
-      device: true,
+      device: { include: { room: true } },
       customer: true,
     },
   });
@@ -116,14 +162,18 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
       where: { id: deviceId },
       data: { status: 'BOOKED', currentBookingId: booking.id },
     });
+    SocketService.emitDeviceStatusChanged(deviceId, 'BOOKED', booking.id);
   }
 
-  // Create notification for Admin & Employee if created by customer
+  // Broadcast real-time booking event to staff & customer
+  SocketService.emitBookingCreated(booking);
+
+  // In-app & push notification
   if (!isStaff) {
     await NotificationService.notifyBookingCreated({
       bookingId: booking.id,
       deviceName: device.name,
-      customerName: booking.customer?.name || customerNameManual || 'عميل',
+      customerName: booking.customer?.name || resolvedCustomerName || 'عميل',
       isOnlinePayment: paymentMethod === 'INSTAPAY_WALLET',
     });
   }
@@ -149,13 +199,17 @@ export const approveBooking = async (req: Request, res: Response): Promise<void>
       status: booking.isOpenTime ? 'ACTIVE' : 'UPCOMING',
       rejectionReason: null,
     },
-    include: { device: true, customer: true },
+    include: { device: { include: { room: true } }, customer: true },
   });
 
   await prisma.device.update({
     where: { id: booking.deviceId },
     data: { status: 'BOOKED', currentBookingId: booking.id },
   });
+
+  // Real-time broadcast
+  SocketService.emitBookingUpdated(updatedBooking);
+  SocketService.emitDeviceStatusChanged(booking.deviceId, 'BOOKED', booking.id);
 
   // Send Push & In-App Notification to Customer
   if (booking.customerId) {
@@ -193,7 +247,7 @@ export const rejectBooking = async (req: Request, res: Response): Promise<void> 
       status: 'REJECTED',
       rejectionReason: parsed.data.rejectionReason,
     },
-    include: { device: true, customer: true },
+    include: { device: { include: { room: true } }, customer: true },
   });
 
   // If device had currentBookingId == this booking, release device
@@ -202,7 +256,11 @@ export const rejectBooking = async (req: Request, res: Response): Promise<void> 
       where: { id: booking.deviceId },
       data: { status: 'AVAILABLE', currentBookingId: null },
     });
+    SocketService.emitDeviceStatusChanged(booking.deviceId, 'AVAILABLE', null);
   }
+
+  // Real-time broadcast
+  SocketService.emitBookingUpdated(updatedBooking);
 
   // Send Push & In-App Notification to Customer with Reason
   if (booking.customerId) {
@@ -258,6 +316,7 @@ export const updateBooking = async (req: Request, res: Response): Promise<void> 
       where: { id: booking.deviceId },
       data: { status: 'AVAILABLE', currentBookingId: null },
     });
+    SocketService.emitDeviceStatusChanged(booking.deviceId, 'AVAILABLE', null);
     // Award 15 loyalty points on completed session if customer user exists
     if (parsed.data.status === 'COMPLETED' && booking.customerId) {
       await prisma.user.update({
@@ -266,6 +325,9 @@ export const updateBooking = async (req: Request, res: Response): Promise<void> 
       }).catch(() => {});
     }
   }
+
+  // Real-time broadcast
+  SocketService.emitBookingUpdated(booking);
 
   res.json({ success: true, data: booking });
 };
@@ -341,6 +403,11 @@ export const startSession = async (req: Request, res: Response): Promise<void> =
       currentBookingId: booking.id,
     },
   });
+
+  // Real-time broadcast
+  SocketService.emitBookingCreated(booking);
+  SocketService.emitDeviceStatusChanged(deviceId, 'BOOKED', booking.id);
+  SocketService.emitSessionEvent('session:started', booking);
 
   res.status(201).json({
     success: true,
@@ -522,6 +589,11 @@ export const endSession = async (req: Request, res: Response): Promise<void> => 
       currentBookingId: null,
     },
   });
+
+  // Real-time broadcast
+  SocketService.emitBookingUpdated(updatedBooking);
+  SocketService.emitDeviceStatusChanged(booking.deviceId, 'AVAILABLE', null);
+  SocketService.emitSessionEvent('session:ended', updatedBooking);
 
   // Notify waitlist & customers that device is available
   NotificationService.notifyDeviceAvailable({

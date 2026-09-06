@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../../config/prisma';
 import { deviceSchema, updateStatusSchema } from './devices.schema';
 import { param } from '../../utils/query';
+import { SocketService } from '../../services/socket.service';
 
 export const getDevicesByRoom = async (req: Request, res: Response): Promise<void> => {
   const devices = await prisma.device.findMany({
@@ -106,6 +107,7 @@ export const updateDeviceStatus = async (req: Request, res: Response): Promise<v
     where: { id: param(req.params.id) },
     data: { status: parsed.data.status },
   });
+  SocketService.emitDeviceStatusChanged(device.id, device.status, device.currentBookingId);
   res.json({ success: true, data: device });
 };
 

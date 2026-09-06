@@ -23,8 +23,15 @@ import { getDevicesByRoom } from './modules/devices/devices.controller';
 import { authenticate } from './middleware/auth.middleware';
 import { requireRole } from './middleware/permissions.middleware';
 
+import http from 'http';
+import { SocketService } from './services/socket.service';
+
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
+
+// ─── Initialize Socket.io ─────────────────────────────────────────────────────
+SocketService.init(server);
 
 // ─── Global Middleware ────────────────────────────────────────────────────────
 app.use(cors());
@@ -66,8 +73,9 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   res.status(500).json({ success: false, message: 'Internal server error' });
 });
 
-app.listen(PORT, () => {
-  console.log(`🦂 Scorpion Gaming API running on http://localhost:${PORT}`);
+server.listen(PORT, () => {
+  console.log(`🦂 Scorpion Gaming API & Socket.io running on http://localhost:${PORT}`);
 });
 
+export { app, server };
 export default app;
